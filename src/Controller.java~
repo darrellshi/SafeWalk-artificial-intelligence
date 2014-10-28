@@ -1,0 +1,123 @@
+import java.util.Observable;
+import java.util.Observer;
+
+public class Controller implements Observer {
+	private static Model model;
+	private Connector connector;
+	private static final String KEY = "k958930";
+	private static final String NICKNAME = "Darrell";
+	private static final String HOST = "pc.cs.purdue.edu";
+	private static final int PORT = 1337;
+
+	Controller(Model model) {
+		Controller.model = model;
+		connector = new Connector(HOST, PORT, String.format("connect %s", KEY),
+				this);
+	}
+
+	public void handleMessage(String message) {
+		String[] fields = message.split(" ");
+
+		if (fields[0].equals("location"))
+			handleLocationMessage(fields);
+		else if (fields[0].equals("request"))
+			handleRequestMessage(fields);
+		else if (fields[0].equals("volunteer"))
+			handleVolunteerMessage(fields);
+		else if (fields[0].equals("delete"))
+			handleDeleteMessage(fields);
+		else if (fields[0].equals("error"))
+			handleErrorMessage(fields);
+		else if (fields[0].equals("reset"))
+			handleResetMessage(fields);
+		else if (fields[0].equals("warning"))
+			handleWarningMessage(fields);
+	}
+
+	public void volunteerStartAction() {
+		Volunteer me = model.getVolunteerByName(NICKNAME);
+		//if (!me.getInProcessSituation())
+			me.makeADecision(model);
+		Request decision = me.getDecision();
+		if (me.getCurrentLocation().equals(decision.getStart())) {
+			//if (model.getRequests().contains(decision))
+				connector.writeLine("walk " + decision.getName());
+//			else {
+//				me.makeADecision(model);
+//				if (me.getCurrentLocation().equals(me.getDecision().getStart()))
+//					connector.writeLine("walk " + me.getDecision().getName());
+//				else
+//					connector.writeLine("move " + me.getDecision().getStart().getName());
+//			}
+		}
+		else {
+			connector.writeLine("move " + decision.getStart().getName());
+			//me.setInProcessSituation(true);
+		}
+	}
+
+	private void handleLocationMessage(String[] fields) {
+		String buildingName = (String) fields[1];
+		double x = Double.valueOf(fields[2]);
+		double y = Double.valueOf(fields[3]);
+		new Location(model, buildingName, x, y);
+	}
+
+	private void handleRequestMessage(String[] fields) {
+		String name = fields[1];
+		String fromBuildingName = fields[2];
+		String toBuildingName = fields[3];
+		int value = Integer.valueOf(fields[4]);
+		new Request(model, name, model.getLocationByName(fromBuildingName),
+				model.getLocationByName(toBuildingName), value);
+	}
+
+	private void handleVolunteerMessage(String[] fields) {
+		String name = fields[1];
+		String locationName = fields[2];
+		int score = Integer.valueOf(fields[3]);
+		double[] xy = model.getLocationByName(locationName).getXY();
+
+		if (model.getVolunteers().contains(model.getVolunteerByName(name)))
+			model.getVolunteerByName(name).setCurrentLocation(
+					model.getLocationByName(locationName));
+		else
+			new Volunteer(model, name, score, new Location(model, locationName,
+					xy[0], xy[1]));
+
+		if (name.equals(NICKNAME))
+			volunteerStartAction();
+	}
+
+	private void handleDeleteMessage(String[] fields) {
+		try {
+			model.removeVolunteer(model.getVolunteerByName(fields[1]));
+		} catch (Exception e) { // "Volunteer " + messages[1] +
+			// " is not in the list."
+		}
+	}
+
+	private void handleErrorMessage(String[] fields) {
+		System.out.println("The previous request caused an error!");
+		System.out.println("error text: " + fields[1]);
+	}
+
+	private void handleResetMessage(String[] fields) {
+		System.out
+		.println("The system has been reset. All clients should reset internal information about the state of the system.");
+	}
+
+	private void handleWarningMessage(String[] fields) {
+		System.out.println("The previous walk request did not happen because the person to be walked has already left with another volunteer. This message is followed shortly by a volunteer message to indicate that the client that generated the walk request is still at the original location and can now issue another command.");
+		System.out.println("TEXT: " + fields[1]);
+	}
+
+	@Override
+	public void update(Observable o, Object arg) {
+		synchronized (model.lock) {
+			String message = (String) arg;
+			handleMessage(message);
+		}
+	}
+
+}
